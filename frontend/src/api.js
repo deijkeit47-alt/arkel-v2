@@ -46,6 +46,22 @@ export function signupVerify(email, code) {
   return post('/signup', { step: 'verify', email, code })
 }
 
+// Inscription par numéro (code WhatsApp via Helena) : numéro → code → prénom.
+export function signupPhoneSend(phone) {
+  return post('/signup', { method: 'phone', step: 'send', phone })
+}
+export function signupPhoneVerify(phone, code, name) {
+  return post('/signup', { method: 'phone', step: 'verify', phone, code, name })
+}
+
+// Connexion par numéro (code WhatsApp) : numéro → code.
+export function loginPhoneSend(phone) {
+  return post('/login', { method: 'phone', step: 'send', phone })
+}
+export function loginPhoneVerify(phone, code) {
+  return post('/login', { method: 'phone', step: 'verify', phone, code })
+}
+
 // SSE : POST /chat/stream → lit les événements `data: {json}`.
 // onEvent est appelé pour chaque événement (reasoning, content, tool, file, clarify, done).
 // Il peut être async (clarify attend la réponse de l'utilisateur).

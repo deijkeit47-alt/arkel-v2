@@ -130,12 +130,13 @@ async def _classify_intent(message: str) -> str:
             model="deepseek-flash",
             messages=[
                 {"role": "system", "content": (
-                    "Tu es un classifieur. Réponds UNIQUEMENT 'tool' ou 'chat'.\n"
-                    "'tool' = la demande nécessite RÉELLEMENT un outil externe : recherche web d'infos "
-                    "actuelles/récentes, créer ou modifier un fichier, écrire ou exécuter du code, contrôler "
-                    "le téléphone, météo en temps réel.\n"
-                    "'chat' = tout le reste : conversation, question de culture générale, calcul, avis, "
-                    "explication, résumé d'un texte déjà donné, traduction. Quand tu hésites, réponds 'chat'.")},
+                    "Tu es un classifieur strict. Réponds UNIQUEMENT 'chat' ou 'tool'.\n"
+                    "'tool' UNIQUEMENT si la demande exige ABSOLUMENT un outil externe : recherche web "
+                    "d'infos récentes/actuelles, créer ou modifier un fichier, écrire ou exécuter du code, "
+                    "contrôler le téléphone, météo en temps réel.\n"
+                    "'chat' = TOUT le reste : une simple question, une phrase de politesse, un calcul, "
+                    "un avis, une explication, une traduction, répondre à une question simple.\n"
+                    "Par défaut et au moindre doute, réponds 'chat'.")},
                 {"role": "user", "content": message},
             ],
             max_tokens=100,
@@ -369,9 +370,75 @@ async def _warmup_runner():
 
 
 # ───────────────────────── auth ─────────────────────────
+def _normalize_phone(raw: str) -> str:
+    """Normalise un numéro : chiffres seuls, ajoute +224 si numéro local guinéen."""
+    digits = re.sub(r"[^\d]", "", raw or "")
+    if len(digits) == 9 and digits.startswith("6"):
+        return "224" + digits
+    return digits
+
+
+def _send_whatsapp_code(phone: str, code: str) -> bool:
+    """Envoie le code de confirmation par WhatsApp via le pont Helena (best effort)."""
+    try:
+        import subprocess
+        jid = phone + "@s.whatsapp.net"
+        msg = f"Ton code de confirmation Arkel : {code}"
+        r = subprocess.run(
+            ["hermes", "-p", "helena", "send", "--to", f"whatsapp:{jid}", msg],
+            capture_output=True, text=True, timeout=30,
+        )
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
 @app.post("/signup")
 async def signup(body: dict):
     step = body.get("step")
+    method = body.get("method") or "email"
+
+    # ── Inscription par numéro (code WhatsApp via Helena) ──
+    if method == "phone":
+        phone = _normalize_phone(body.get("phone"))
+        if not phone:
+            return JSONResponse({"error": "numéro manquant"}, status_code=400)
+        if step == "send":
+            if phone in _load_users():
+                return JSONResponse({"error": "compte existant"}, status_code=409)
+            code = str(secrets.randbelow(1000000)).zfill(6)
+            _pending[phone] = {"method": "phone", "code": code, "ts": time.time()}
+            # Envoi WhatsApp en arrière-plan (non bloquant)
+            asyncio.create_task(asyncio.to_thread(_send_whatsapp_code, phone, code))
+            return {"status": "ok"}
+        if step == "verify":
+            name = (body.get("name") or "").strip()
+            code = (body.get("code") or "").strip()
+            pend = _pending.get(phone)
+            if not pend:
+                return JSONResponse({"error": "aucune demande en cours"}, status_code=400)
+            if code != pend.get("code"):
+                return JSONResponse({"error": "code invalide"}, status_code=400)
+            if not name:
+                return JSONResponse({"error": "nom manquant"}, status_code=400)
+            users = _load_users()
+            users[phone] = {
+                "name": name,
+                "plan": "free",
+                "quota": FREE_QUOTA,
+                "used": 0,
+                "total": FREE_QUOTA,
+                "used_usd": 0.0,
+                "used_gnf": 0.0,
+                "quota_reset_at": time.time() + FREE_RESET_DAYS * 86400,
+                "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            _save_users(users)
+            _pending.pop(phone, None)
+            return {"token": _new_token(phone)}
+        return JSONResponse({"error": "étape inconnue"}, status_code=400)
+
+    # ── Inscription par e-mail (existant) ──
     email = (body.get("email") or "").strip().lower()
 
     if step == "send":
@@ -421,6 +488,36 @@ async def signup(body: dict):
 async def login(body: dict):
     if not _app_enabled():
         return JSONResponse({"error": "service indisponible"}, status_code=503)
+
+    method = body.get("method") or "email"
+
+    # ── Connexion par numéro (code WhatsApp) ──
+    if method == "phone":
+        phone = _normalize_phone(body.get("phone"))
+        step = body.get("step") or "send"
+        if not phone:
+            return JSONResponse({"error": "numéro manquant"}, status_code=400)
+        if step == "send":
+            u = _load_users().get(phone)
+            if not u:
+                return JSONResponse({"error": "compte introuvable"}, status_code=404)
+            if u.get("blocked"):
+                return JSONResponse({"error": "compte bloqué"}, status_code=403)
+            code = str(secrets.randbelow(1000000)).zfill(6)
+            _pending[phone] = {"method": "phone", "code": code, "ts": time.time()}
+            # Envoi WhatsApp en arrière-plan (non bloquant)
+            asyncio.create_task(asyncio.to_thread(_send_whatsapp_code, phone, code))
+            return {"status": "ok"}
+        if step == "verify":
+            code = (body.get("code") or "").strip()
+            pend = _pending.get(phone)
+            if not pend or code != pend.get("code"):
+                return JSONResponse({"error": "code invalide"}, status_code=400)
+            _pending.pop(phone, None)
+            return {"token": _new_token(phone)}
+        return JSONResponse({"error": "étape inconnue"}, status_code=400)
+
+    # ── Connexion par e-mail (existant) ──
     email = (body.get("email") or "").strip().lower()
     password = body.get("password") or ""
     u = _load_users().get(email)

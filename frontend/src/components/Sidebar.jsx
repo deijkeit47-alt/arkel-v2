@@ -54,16 +54,15 @@ export default function Sidebar({ open, conversations, activeId, quota, onNew, o
         </div>
 
         <div className="sidebar-footer">
-          {quota && quota.total > 0 && (
-            <div className="quota-bar-wrap">
-              <div className="quota-bar-track">
-                <div
-                  className="quota-bar-fill"
-                  style={{ width: `${Math.min(100, (quota.used / quota.total) * 100)}%` }}
-                />
-              </div>
+          <div className="quota-bar-wrap">
+            <div className="quota-bar-label">Quota</div>
+            <div className="quota-bar-track">
+              <div
+                className="quota-bar-fill"
+                style={{ width: quota && quota.total > 0 ? `${Math.min(100, (quota.used / quota.total) * 100)}%` : '0%' }}
+              />
             </div>
-          )}
+          </div>
           <button className="profile-btn" onClick={onOpenSettings}>
             <div className="avatar">{((quota && quota.name) || 'A').charAt(0).toUpperCase()}</div>
             <div className="who">
