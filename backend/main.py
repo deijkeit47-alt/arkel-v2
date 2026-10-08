@@ -209,6 +209,54 @@ def _token_email(token: str):
     return _tokens.get(token or "")
 
 
+# ───────────────────────── admin / contrôle à distance ─────────────────────────
+STATE_FILE = os.path.join(DATA_DIR, "state.json")
+ADMIN_FILE = os.path.join(DATA_DIR, "admin.json")
+_admin_tokens = set()  # jetons de session admin (en mémoire)
+
+
+def _load_state() -> dict:
+    try:
+        with open(STATE_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {"enabled": True}
+
+
+def _save_state(state: dict) -> None:
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(STATE_FILE, "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False, indent=2)
+
+
+def _app_enabled() -> bool:
+    return _load_state().get("enabled", True)
+
+
+def _load_admin() -> dict:
+    try:
+        with open(ADMIN_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def _save_admin(adm: dict) -> None:
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(ADMIN_FILE, "w", encoding="utf-8") as f:
+        json.dump(adm, f, ensure_ascii=False, indent=2)
+
+
+def _new_admin_token() -> str:
+    t = secrets.token_hex(16)
+    _admin_tokens.add(t)
+    return t
+
+
+def _is_admin_token(token: str) -> bool:
+    return bool(token) and token in _admin_tokens
+
+
 def _memory_text(email: str) -> str:
     """Mémoire LÉGÈRE et SÉLECTIVE de l'utilisateur (nom, ton, faits importants).
     Le prénom vient du compte (source de vérité) si la mémoire ne l'a pas."""
@@ -371,12 +419,83 @@ async def signup(body: dict):
 
 @app.post("/login")
 async def login(body: dict):
+    if not _app_enabled():
+        return JSONResponse({"error": "service indisponible"}, status_code=503)
     email = (body.get("email") or "").strip().lower()
     password = body.get("password") or ""
     u = _load_users().get(email)
     if not u or _hash_password(password, u["password_salt"]) != u["password_hash"]:
         return JSONResponse({"error": "identifiants invalides"}, status_code=401)
+    if u.get("blocked"):
+        return JSONResponse({"error": "compte bloqué"}, status_code=403)
     return {"token": _new_token(email)}
+
+
+# ───────────────────────── admin (contrôle à distance) ─────────────────────────
+@app.post("/admin/login")
+async def admin_login(body: dict):
+    password = body.get("password") or ""
+    adm = _load_admin()
+    if not adm or _hash_password(password, adm.get("salt", "")) != adm.get("hash", ""):
+        return JSONResponse({"error": "mot de passe admin invalide"}, status_code=401)
+    return {"token": _new_admin_token()}
+
+
+@app.get("/admin/state")
+async def admin_state(token: str = ""):
+    if not _is_admin_token(token):
+        return JSONResponse({"error": "non autorisé"}, status_code=401)
+    users = _load_users()
+    ulist = [
+        {
+            "email": e,
+            "name": u.get("name", ""),
+            "plan": u.get("plan", "free"),
+            "blocked": bool(u.get("blocked")),
+            "quota": u.get("quota", 0),
+        }
+        for e, u in users.items()
+    ]
+    return {"enabled": _app_enabled(), "users": ulist}
+
+
+@app.post("/admin/block")
+async def admin_block(body: dict):
+    token = body.get("token") or ""
+    if not _is_admin_token(token):
+        return JSONResponse({"error": "non autorisé"}, status_code=401)
+    email = (body.get("email") or "").strip().lower()
+    blocked = bool(body.get("blocked"))
+    users = _load_users()
+    if email not in users:
+        return JSONResponse({"error": "compte introuvable"}, status_code=404)
+    users[email]["blocked"] = blocked
+    _save_users(users)
+    if blocked:
+        for t, e in list(_tokens.items()):
+            if e == email:
+                del _tokens[t]
+        _save_tokens()
+    return {"ok": True, "blocked": blocked}
+
+
+@app.post("/admin/kill")
+async def admin_kill(body: dict):
+    token = body.get("token") or ""
+    if not _is_admin_token(token):
+        return JSONResponse({"error": "non autorisé"}, status_code=401)
+    enabled = bool(body.get("enabled"))
+    _save_state({"enabled": enabled})
+    return {"ok": True, "enabled": enabled}
+
+
+@app.get("/admin")
+async def admin_page():
+    """Page d'administration (contrôle à distance : blocage, kill switch)."""
+    try:
+        return FileResponse(os.path.join(os.path.dirname(os.path.abspath(__file__)), "admin.html"))
+    except Exception:
+        return JSONResponse({"error": "page admin introuvable"}, status_code=404)
 
 
 # ───────────────────────── quota ─────────────────────────
@@ -946,6 +1065,11 @@ async def chat_stream(body: dict, request: Request):
     email, _ = ident
     _maybe_reset_free_quota(email)
     user = _load_users().get(email, {})
+
+    if not _app_enabled():
+        return JSONResponse({"error": "service indisponible"}, status_code=503)
+    if user.get("blocked"):
+        return JSONResponse({"error": "compte bloqué"}, status_code=403)
 
     if user.get("quota", 0) <= 0:
         async def gen_quota():

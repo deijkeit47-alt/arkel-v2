@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arkel — Administration</title>
+<style>
+  :root { --bg:#101010; --card:#1a1a1a; --border:#2a2a2a; --text:#e8e8e8; --muted:#8f8f8f; --accent:#5B7CFF; --danger:#e06c6c; --green:#4caf7d; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, "Segoe UI", Roboto, sans-serif; padding: 20px; max-width: 640px; margin: 0 auto; }
+  h1 { font-size: 20px; margin-bottom: 20px; }
+  h2 { font-size: 15px; margin: 24px 0 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  input { width: 100%; background: #242424; border: 1px solid var(--border); border-radius: 8px; padding: 12px; color: var(--text); font-size: 15px; outline: none; }
+  input:focus { border-color: var(--accent); }
+  button { cursor: pointer; border: none; border-radius: 8px; padding: 10px 14px; font-size: 14px; font-weight: 600; }
+  .btn-primary { background: var(--accent); color: #fff; width: 100%; margin-top: 12px; }
+  .btn-danger { background: rgba(224,108,108,.15); color: var(--danger); border: 1px solid #5a2e2e; }
+  .btn-green { background: rgba(76,175,125,.15); color: var(--green); border: 1px solid #2e5a42; }
+  .err { color: var(--danger); font-size: 13px; margin-top: 10px; }
+  .status-pill { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .on { background: rgba(76,175,125,.18); color: var(--green); }
+  .off { background: rgba(224,108,108,.18); color: var(--danger); }
+  .user { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .user .email { font-weight: 600; flex: 1; min-width: 160px; word-break: break-all; }
+  .user .meta { color: var(--muted); font-size: 12.5px; }
+  .user .actions { display: flex; gap: 8px; }
+  .kill-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  a.logout { color: var(--muted); font-size: 13px; text-decoration: none; float: right; }
+</style>
+</head>
+<body>
+<div id="login">
+  <h1>Arkel — Administration</h1>
+  <div class="card">
+    <input id="pwd" type="password" placeholder="Mot de passe admin" autocomplete="current-password">
+    <button class="btn-primary" onclick="login()">Connexion</button>
+    <div class="err" id="err"></div>
+  </div>
+</div>
+
+<div id="dash" style="display:none">
+  <h1>Arkel — Administration <a class="logout" href="#" onclick="logout()">Déconnexion</a></h1>
+
+  <div class="card kill-row">
+    <div>
+      <div style="font-weight:600">État du service</div>
+      <div class="meta" style="color:var(--muted);font-size:12.5px">Désactiver coupe l'app pour tout le monde.</div>
+    </div>
+    <div>
+      <span class="status-pill" id="killpill"></span>
+      <button id="killbtn" class="btn-danger" onclick="kill()">…</button>
+    </div>
+  </div>
+
+  <h2>Utilisateurs (<span id="ucount">0</span>)</h2>
+  <div class="card" id="users"></div>
+</div>
+
+<script>
+let token = localStorage.getItem('arkel-admin-token') || ''
+
+async function post(path, body) {
+  const r = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, ...(body || {}) }),
+  })
+  if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || 'Erreur') }
+  return r.json()
+}
+
+async function login() {
+  const pwd = document.getElementById('pwd').value
+  try {
+    const r = await fetch('/admin/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: pwd }) })
+    if (!r.ok) { document.getElementById('err').textContent = 'Mot de passe invalide'; return }
+    const d = await r.json()
+    token = d.token
+    localStorage.setItem('arkel-admin-token', token)
+    show()
+  } catch (e) { document.getElementById('err').textContent = e.message }
+}
+
+function logout() {
+  token = ''
+  localStorage.removeItem('arkel-admin-token')
+  document.getElementById('login').style.display = 'block'
+  document.getElementById('dash').style.display = 'none'
+}
+
+async function load() {
+  const r = await fetch('/admin/state?token=' + encodeURIComponent(token))
+  if (!r.ok) { logout(); return }
+  const s = await r.json()
+  // Kill switch
+  const pill = document.getElementById('killpill')
+  const btn = document.getElementById('killbtn')
+  if (s.enabled) { pill.textContent = 'ACTIF'; pill.className = 'status-pill on'; btn.textContent = '🔴 Désactiver'; btn.className = 'btn-danger' }
+  else { pill.textContent = 'COUPÉ'; pill.className = 'status-pill off'; btn.textContent = '🟢 Activer'; btn.className = 'btn-green' }
+  btn.onclick = () => kill(!s.enabled)
+  // Users
+  document.getElementById('ucount').textContent = s.users.length
+  document.getElementById('users').innerHTML = s.users.map(u => `
+    <div class="user">
+      <span class="email">${esc(u.email)}</span>
+      <span class="meta">${esc(u.name || '—')} · ${esc(u.plan)} · ${u.quota} tokens</span>
+      <span class="status-pill ${u.blocked ? 'off' : 'on'}">${u.blocked ? 'BLOQUÉ' : 'OK'}</span>
+      <span class="actions">
+        <button class="${u.blocked ? 'btn-green' : 'btn-danger'}" onclick="block('${esc(u.email)}', ${!u.blocked})">${u.blocked ? 'Débloquer' : 'Bloquer'}</button>
+      </span>
+    </div>`).join('') || '<div style="color:var(--muted);padding:10px 0">Aucun utilisateur.</div>'
+}
+
+async function kill(enabled) {
+  try { await post('/admin/kill', { enabled }); await load() } catch (e) { alert(e.message) }
+}
+
+async function block(email, blocked) {
+  try { await post('/admin/block', { email, blocked }); await load() } catch (e) { alert(e.message) }
+}
+
+function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])) }
+
+function show() {
+  document.getElementById('login').style.display = 'none'
+  document.getElementById('dash').style.display = 'block'
+  load()
+}
+
+if (token) show()
+</script>
+</body>
+</html>
