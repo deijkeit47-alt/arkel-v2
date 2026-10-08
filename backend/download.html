@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arkel — Télécharger l'application</title>
+<style>
+  :root { --bg:#101010; --card:#1a1a1a; --border:#2a2a2a; --text:#e8e8e8; --muted:#8f8f8f; --accent:#5B7CFF; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, "Segoe UI", Roboto, sans-serif; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+  .wrap { text-align: center; max-width: 420px; width: 100%; }
+  .logo { width: 72px; height: 72px; border-radius: 18px; background: linear-gradient(135deg, #5B7CFF, #3d5adf); display: flex; align-items: center; justify-content: center; font-size: 34px; font-weight: 800; color: #fff; margin: 0 auto 18px; }
+  h1 { font-size: 26px; margin-bottom: 8px; }
+  p.sub { color: var(--muted); font-size: 15px; margin-bottom: 28px; line-height: 1.5; }
+  .dl { display: block; background: var(--accent); color: #fff; text-decoration: none; font-size: 17px; font-weight: 700; padding: 16px 24px; border-radius: 12px; margin-bottom: 16px; }
+  .dl:active { transform: scale(.98); }
+  .hint { color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+  .hint b { color: var(--text); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="logo">A</div>
+    <h1>Arkel</h1>
+    <p class="sub">Ton assistant IA personnel, dans ton téléphone.</p>
+    <a class="dl" href="/apk" download="Arkel.apk">📲 Télécharger l'application</a>
+    <p class="hint">
+      Après le téléchargement, ouvre le fichier pour l'installer.<br>
+      Android peut demander d'autoriser « les sources inconnues ».<br>
+      Ensuite, ouvre <b>Paramètres → Serveur</b> et colle l'URL qu'on t'a donnée.
+    </p>
+  </div>
+</body>
+</html>

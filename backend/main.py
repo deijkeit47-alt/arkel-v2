@@ -498,6 +498,24 @@ async def admin_page():
         return JSONResponse({"error": "page admin introuvable"}, status_code=404)
 
 
+@app.get("/apk")
+async def apk_download():
+    """Sert l'APK Arkel (téléchargement de l'application)."""
+    apk_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "arkel.apk")
+    if not os.path.isfile(apk_path):
+        return JSONResponse({"error": "APK introuvable"}, status_code=404)
+    return FileResponse(apk_path, filename="Arkel.apk")
+
+
+@app.get("/")
+async def download_page():
+    """Page de téléchargement de l'application (accueil public)."""
+    try:
+        return FileResponse(os.path.join(os.path.dirname(os.path.abspath(__file__)), "download.html"))
+    except Exception:
+        return JSONResponse({"error": "page introuvable"}, status_code=404)
+
+
 # ───────────────────────── quota ─────────────────────────
 def _get_user_from_request(body: dict, request: Request):
     token = body.get("token") or ""
