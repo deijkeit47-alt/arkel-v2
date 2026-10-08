@@ -1219,6 +1219,32 @@ body {
   white-space: nowrap;
 }
 
+/* Bannière de mise à jour à distance */
+.update-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.update-banner a { color: #fff; text-decoration: underline; }
+.update-banner button {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  font-size: 15px;
+}
+
 /* ── Connexion / inscription (moderne) ───────────────────── */
 .auth {
   height: 100%;

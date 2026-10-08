@@ -12,6 +12,10 @@ import { saveMedia } from './mediaStore.js'
 
 let nextId = 1
 
+// Version de l'app + source de mise à jour à distance (repo GitHub).
+const APP_VERSION = '0.1.0'
+const UPDATE_URL = 'https://raw.githubusercontent.com/deijkeit47-alt/arkel-v2/master/version.json'
+
 export default function App() {
   const [token, setToken] = useState(() => localStorage.getItem('arkel.token') || '')
   const [conversations, setConversations] = useState(() => {
@@ -50,6 +54,7 @@ export default function App() {
   const [showSubscription, setShowSubscription] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showLibrary, setShowLibrary] = useState(false)
+  const [update, setUpdate] = useState(null)
 
   async function loadQuota() {
     if (!token) return
@@ -70,6 +75,14 @@ export default function App() {
       localStorage.setItem('arkel.activeId', activeId == null ? '' : String(activeId))
     } catch (_) {}
   }, [conversations, activeId])
+
+  // ── Mise à jour à distance : vérifie la version sur le repo GitHub ──
+  useEffect(() => {
+    fetch(UPDATE_URL)
+      .then((r) => r.json())
+      .then((v) => { if (v && v.version && v.version !== APP_VERSION) setUpdate(v) })
+      .catch(() => {})
+  }, [])
 
   const scrollRef = useRef(null)
   const atBottomRef = useRef(true)
@@ -431,6 +444,13 @@ export default function App() {
 
   return (
     <div className="app">
+      {update && (
+        <div className="update-banner">
+          <span>Mise à jour {update.version} disponible</span>
+          {update.apk_url && <a href={update.apk_url} target="_blank" rel="noreferrer">Télécharger</a>}
+          <button onClick={() => setUpdate(null)} aria-label="Fermer">✕</button>
+        </div>
+      )}
       <Sidebar
         open={sidebarOpen}
         conversations={conversations}
